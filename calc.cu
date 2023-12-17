@@ -5,7 +5,7 @@
 
 #define NumP 500 														/*Number of Particles*/
 #define dt 5.0												/*Timestep in days*/
-#define Ndt 10000														/*Number of Timesteps*/
+#define Ndt 5000														/*Number of Timesteps*/
 #define G 6.67E-11 														/*Gravitational Constant*/
 #define e 1E13 															/*Epsilon Value*/
 #define prec 50												/*Set Output Precision: 1-Full Precision, >1-Less Precise*/
@@ -54,7 +54,6 @@ int force_encoder(int t1, int t2, int t3)
 {
     return (t1 * NumP * 3 + t2 * 3 + t3);
 }
-
 
 __global__
 void Calc(double* Fx, double* Fy, double* Fz, double* pot_en, double* masses, double* dpos, double* force, double* pos)
@@ -106,7 +105,7 @@ void Calc(double* Fx, double* Fy, double* Fz, double* pot_en, double* masses, do
     }
 }
 
-int ImportParticles()
+int ImportParticles(double* masses, double* pos, double* vel)
 {
     FILE *particles_file;
 	particles_file = fopen("particles.txt", "r");
@@ -192,7 +191,7 @@ int main()
     cudaMallocManaged(&vel, sizeof(double) * NumP * 3);
     cudaMallocManaged(&new_pos, sizeof(double) * NumP * 3);
     cudaMallocManaged(&new_vel, sizeof(double) * NumP * 3);
-    cudaMallocManaged(&data, sizeof(double) * NumP * Ndt * 6);
+    cudaMallocManaged(&data, sizeof(double) * Ndt * Ndt * 6);
     cudaMallocManaged(&dpos, sizeof(double) * NumP * NumP * 4);
     cudaMallocManaged(&force, sizeof(double) * NumP * NumP * 3);
     cudaMallocManaged(&Fx, sizeof(double) * NumP);
@@ -201,13 +200,29 @@ int main()
     cudaMallocManaged(&kin_en, sizeof(double) * NumP);
     cudaMallocManaged(&pot_en, sizeof(double) * NumP);
 
-    ImportParticles();
+    double *mass, *ppos, *vels;
+    mass = (double *)malloc(NumP*sizeof(double));
+    ppos = (double *)malloc(NumP*sizeof(double)*3);
+    vels = (double *)malloc(NumP*sizeof(double)*3);
+    ImportParticles(mass, ppos, vels);
+    cudaMemcpy(masses, mass, NumP*sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(pos, ppos, NumP*sizeof(double)*3, cudaMemcpyHostToDevice);
+    cudaMemcpy(vel, vels, NumP*sizeof(double)*3, cudaMemcpyHostToDevice);
+
+/*
+    printf("------FINISHED MEMORY COPY------\n");
+
+    for(int i = 0; i < NumP; i++)
+    {
+        printf("pos: %e %e %e\n", pos[posvel_encoder(i, 0)], pos[posvel_encoder(i, 1)], pos[posvel_encoder(i, 2)]);
+    }
+*/
 
     int t;
-    for(t = 0; t == Ndt; t++)
+    for(t = 0; t < Ndt; t++)
     {
-        Calc<<<256, 256>>>(Fx, Fy, Fz, pot_en, masses, dpos, force, pos);
-
+        Calc<<<32,32>>>(Fx, Fy, Fz, pot_en, masses, dpos, force, pos);
+        //printf("Finished calc in round %d\n", t);
         int particle_i;
 
         for(particle_i = 0; particle_i < NumP; particle_i++)
@@ -216,6 +231,8 @@ int main()
             Iterate(particle_i, t);
         }
     }
+
+    cudaDeviceSynchronize();
 
     for(int i = 0; i < NumP; i++)
     {
@@ -238,6 +255,5 @@ int main()
         }
     }
 
-    cudaDeviceSynchronize();
     return 0;
 }
