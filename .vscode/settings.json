@@ -12,6 +12,7 @@
         "streambuf": "cpp",
         "tuple": "cpp",
         "type_traits": "cpp",
-        "*.inc": "cpp"
+        "*.inc": "cpp",
+        "cmath": "cpp"
     }
 }

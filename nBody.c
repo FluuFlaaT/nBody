@@ -14,7 +14,7 @@
 
 #define NumP 500 														/*Number of Particles*/
 #define dt 5.0												/*Timestep in days*/
-#define Ndt 50000														/*Number of Timesteps*/
+#define Ndt 10000														/*Number of Timesteps*/
 #define G 6.67E-11 														/*Gravitational Constant*/
 #define e 1E13 															/*Epsilon Value*/
 #define prec 50												/*Set Output Precision: 1-Full Precision, >1-Less Precise*/

@@ -128,26 +128,6 @@ int Iterate(int particle_i,int timestep)										/*Particle iteration function*
 	return 0;
 }	
 
-double rand_range(double min_n, double max_n)
-{
-    return (double)rand()/RAND_MAX * (max_n - min_n) + min_n;
-}
-
-int RandomPos()
-{
-	double max = 1.0;
-	double min = -1.0;
-	int particles = 0;
-	for (particles=0; particles < NumP; particles++)
-	{
-		masses[particles] = M;
-		pos[particles][0] = rand_range(min,max)*(size/2.0);
-		pos[particles][1] = rand_range(min,max)*(size/2.0);
-		pos[particles][2] = rand_range(min,max)*(size/2.0);
-	}
-	return 0;
-}
-
 int ImportParticles()
 {
 	FILE *particles_file;

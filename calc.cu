@@ -15,25 +15,93 @@
 
 double *masses, *pos, *vel, *new_pos, *new_vel, *data, *dpos, *force, *Fx, *Fy, *Fz, *kin_en, *pot_en;
 
-__global__
-void Calc(double* Fx, double* Fy, double* Fz, double* pot_en, double* masses, double* dpos, double* force)
+__device__ int posvel_encoder_gpu(int t1, int t2)
 {
-    int z = threadIdx.x + blockIdx.x * blockDim.x;
+    return (t1 * 3 + t2);
+}
 
-    for(int i = 0; z < NumP; z++){
+__device__ int dpos_encoder_gpu(int t1, int t2, int t3)
+{
+    return (t1 * NumP * 4 + t2 * 4 + t3);
+}
+
+__device__ int data_encoder_gpu(int t1, int t2, int t3)
+{
+    return (t1 * Ndt * 6 + t2 * 6 + t3);
+}
+
+__device__ int force_encoder_gpu(int t1, int t2, int t3)
+{
+    return (t1 * NumP * 3 + t2 * 3 + t3);
+}
+
+int posvel_encoder(int t1, int t2)
+{
+    return (t1 * 3 + t2);
+}
+
+int dpos_encoder(int t1, int t2, int t3)
+{
+    return (t1 * NumP * 4 + t2 * 4 + t3);
+}
+
+int data_encoder(int t1, int t2, int t3)
+{
+    return (t1 * Ndt * 6 + t2 * 6 + t3);
+}
+
+int force_encoder(int t1, int t2, int t3)
+{
+    return (t1 * NumP * 3 + t2 * 3 + t3);
+}
+
+
+__global__
+void Calc(double* Fx, double* Fy, double* Fz, double* pot_en, double* masses, double* dpos, double* force, double* pos)
+{
+    int index = threadIdx.x + blockIdx.x * blockDim.x;
+    int stride = blockDim.x * gridDim.x;
+
+    for(int i = 0; i < 3; i++){
         Fx[i] = 0.0;
         Fy[i] = 0.0;
         Fz[i] = 0.0;
         pot_en[i] = 0.0;
     }
 
-    for(int i = 0; i < (NumP - 1); i++)
+    for(int i = index; i < NumP - 1; i += stride)
     {
-        for(int j = i + 1; j < NumP; j++)
+        for(int j = i + 1; j < NumP; j ++)
         {
-            for(int k = 0; k < 3; k++){
-
+            for(int k = 0; k < 3; k++)
+            {
+                dpos[dpos_encoder_gpu(i, j, k)] = pos[posvel_encoder_gpu(i, k)] - pos[posvel_encoder_gpu(j, k)];
+                dpos[dpos_encoder_gpu(j,i,k)] = - dpos[dpos_encoder_gpu(i,j,k)];
             }
+
+            dpos[dpos_encoder_gpu(i,j,3)] = sqrt( pow(dpos[dpos_encoder_gpu(i,j,0)],2) + pow(dpos[dpos_encoder_gpu(i,j,1)], 2) + pow(dpos[dpos_encoder_gpu(i,j,2)],2));
+            dpos[dpos_encoder_gpu(j,i,3)] = dpos[dpos_encoder_gpu(i,j,3)];
+
+            /*in Fx*/
+            force[force_encoder_gpu(i,j,0)] = - (G * masses[i] * masses[j] * dpos[dpos_encoder_gpu(i,j,0)]) / pow(sqrt (pow(dpos[dpos_encoder_gpu(i,j,3)], 2))+ pow(e, 2), 3);
+            force[force_encoder_gpu(j,i,0)] = - force[force_encoder_gpu(i,j,0)];
+            Fx[i] = Fx[i] + force[force_encoder_gpu(i,j,0)];
+            Fx[j] = Fx[j] + force[force_encoder_gpu(j,i,0)];
+            
+
+            /*in Fy*/
+            force[force_encoder_gpu(i,j,1)] = - (G * masses[i] * masses[j] * dpos[dpos_encoder_gpu(i,j,1)]) / pow( sqrt(pow(dpos[dpos_encoder_gpu(i,j,3)],2) + pow(e,2)) ,3);
+            force[force_encoder_gpu(j,i,1)] = - force[force_encoder_gpu(i,j,1)];
+            Fy[i] = Fy[i] + force[force_encoder_gpu(i,j,1)];
+            Fy[j] = Fy[j] + force[force_encoder_gpu(j,i,1)];
+
+            /*in Fz*/
+            force[force_encoder_gpu(i,j,2)] = - (G * masses[i] * masses[j] * dpos[dpos_encoder_gpu(i,j,2)]) / pow(sqrt (pow(dpos[dpos_encoder_gpu(i,j,3)], 2))+ pow(e, 2), 3);
+            force[force_encoder_gpu(j,i,2)] = - force[force_encoder_gpu(i,j,2)];
+            Fx[i] = Fx[i] + force[force_encoder_gpu(i,j,2)];
+            Fx[j] = Fx[j] + force[force_encoder_gpu(j,i,2)];
+
+            pot_en[i] = pot_en[i] - (G * masses[i] * masses[j])/(dpos[dpos_encoder_gpu(i,j,3)]);
         }
     }
 }
@@ -81,33 +149,41 @@ int ImportParticles()
 	return 0;
 }
 
-int Iterate(int particle_i, int timestep)
+int Iterate(int particle_i,int timestep)										/*Particle iteration function*/
 {
-    data[data_encoder(timestep, particle_i, 5)] = pot_en[particle_i];
+	data[data_encoder(timestep, particle_i, 5)] = pot_en[particle_i];					/*Add potetial energy to data array*/
+	
+	/*Calculate new velocity in each direction and add to new_vel array*/
+    new_vel[posvel_encoder(particle_i, 0)] = vel[posvel_encoder(particle_i, 0)] + ((Fx[particle_i] * dt * 3600 * 24)/(masses[particle_i]));
+    new_vel[posvel_encoder(particle_i, 1)] = vel[posvel_encoder(particle_i, 1)] + ((Fx[particle_i] * dt * 3600 * 24)/(masses[particle_i]));
+    new_vel[posvel_encoder(particle_i, 2)] = vel[posvel_encoder(particle_i, 2)] + ((Fx[particle_i] * dt * 3600 * 24)/(masses[particle_i]));
+	
+	/*Calculate new x positon and add to data array*/
+    new_pos[posvel_encoder(particle_i, 0)] = (1.0 + a) * (pos[posvel_encoder(particle_i, 0)] + (new_vel[posvel_encoder(particle_i, 0)]* dt * 3600 * 24));
 
-    new_vel[posval_encoder(particle_i, 0)] = vel[posval_encoder(particle_i, 0)] + 
-}
+	/*printf ("Pos[i][0] - %.2e \t New_Pos[i][0] - %.2e \t New_Pos/(1.0+a) - %.2e \n",pos[particle_i][0],new_pos[particle_i][0],new_pos[particle_i][0]/(1.0+a));*/
+    data[data_encoder(timestep, particle_i, 0)] = ( new_pos[posvel_encoder(particle_i, 0)] / pow((1.0+a),(timestep+1)));
+	
+	/*Calculate new y positon and add to data array*/
+	new_pos[posvel_encoder(particle_i, 1)] = (1.0+a) * (pos[posvel_encoder(particle_i, 1)] + (new_vel[posvel_encoder(particle_i, 1)] * dt * 3600 * 24));
+	data[data_encoder(timestep, particle_i, 1)] = (new_pos[posvel_encoder(particle_i, 1)] / pow((1.0+a),(timestep+1)));
+	
+	/*Calculate new z positon and add to data array*/
+    new_pos[posvel_encoder(particle_i, 2)] = (1.0+a) * (pos[posvel_encoder(particle_i, 2)] + (new_vel[posvel_encoder(particle_i, 2)] * dt * 3600 * 24));
+	data[data_encoder(timestep, particle_i, 2)] = (new_pos[posvel_encoder(particle_i, 2)] / pow((1.0+a),(timestep+1)));
+	
+	/*Calculate velocities half a timestep for kinetic energy calcs*/
+	double vel_x = vel[posvel_encoder(particle_i, 0)] + ((Fx[particle_i] * dt * 3600 * 24 * 0.5)/(masses[particle_i]));
+	double vel_y = vel[posvel_encoder(particle_i, 1)] + ((Fx[particle_i] * dt * 3600 * 24 * 0.5)/(masses[particle_i]));
+	double vel_z = vel[posvel_encoder(particle_i, 2)] + ((Fx[particle_i] * dt * 3600 * 24 * 0.5)/(masses[particle_i]));
+	double vel_abs = sqrt(pow(vel_x,2) + pow(vel_y,2) + pow(vel_z,2));
+	
+	/*Calculate kinectic energy and add to kin_en array*/
+	kin_en[particle_i] = 0.5*masses[particle_i]*pow(vel_abs,2);
+	data[data_encoder(timestep, particle_i, 4)] = kin_en[particle_i];
 
-
-int posval_encoder(int t1, int t2)
-{
-    return (t1 * 3 + t2);
-}
-
-int dpos_encoder(int t1, int t2, int t3)
-{
-    return (t1 * NumP * 4 + t2 * 4 + t3);
-}
-
-int data_encoder(int t1, int t2, int t3)
-{
-    return (t1 * Ndt * 6 + t2 * 6 + t3);
-}
-
-int force_encoder(int t1, int t2, int t3)
-{
-    return (t1 * NumP * 3 + t2 * 3 + t3);
-}
+	return 0;
+}	
 
 int main()
 {
@@ -128,9 +204,9 @@ int main()
     ImportParticles();
 
     int t;
-    for(t = 0; t = Ndt; t++)
+    for(t = 0; t == Ndt; t++)
     {
-        Calc<<<256, 256>>>();
+        Calc<<<256, 256>>>(Fx, Fy, Fz, pot_en, masses, dpos, force, pos);
 
         int particle_i;
 
@@ -141,5 +217,27 @@ int main()
         }
     }
 
+    for(int i = 0; i < NumP; i++)
+    {
+        for(int j = 0; j < 3; j++)
+        {
+            pos[posvel_encoder(i,j)] = new_pos[posvel_encoder(i,j)];
+            vel[posvel_encoder(i,j)] = new_vel[posvel_encoder(i,j)];
+        }
+    }
+
+    printf ("NumP,dt,Ndt,Precision, , ,\n");
+    printf ("%i,%f,%i,%i,%e,%e,\n", NumP, dt, Ndt, prec, size, e);
+    printf("x,y,z,t,Ek,Ep,\n");
+
+    for(int i = 0; i < Ndt; i += prec)
+    {
+        for(int j = 0; j < NumP; j++)
+        {
+            printf("%e,%e,%e,%e,%e,%e,\n", data[data_encoder(i,j,0)], data[data_encoder(i,j,1)], data[data_encoder(i,j,2)], data[data_encoder(i,j,3)], data[data_encoder(i,j,4)], data[data_encoder(i,j,5)]);
+        }
+    }
+
+    cudaDeviceSynchronize();
     return 0;
 }
