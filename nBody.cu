@@ -14,7 +14,7 @@
 
 #define NumP 500 														/*Number of Particles*/
 #define dt 5.0												/*Timestep in days*/
-#define Ndt 50000														/*Number of Timesteps*/
+#define Ndt 10000														/*Number of Timesteps*/
 #define G 6.67E-11 														/*Gravitational Constant*/
 #define e 1E13 															/*Epsilon Value*/
 #define prec 50												/*Set Output Precision: 1-Full Precision, >1-Less Precise*/
@@ -29,23 +29,21 @@ double pos[NumP][3]={{0.0}}; 											/*Particle Positions in m (x,y,z)*/
 double vel[NumP][3]={{0.0}}; 											/*Particle Velocities in ms^-1 (v_x,v_y,v_z)*/
 double new_pos[NumP][3]={{0.0}}; 										/*New Particle Positions in m (x,y,z)*/
 double new_vel[NumP][3]={{0.0}}; 										/*New Particle Velocities in ms^-1 (v_x,v_y,v_z)*/
-double time[NumP]={0.0}; 												/*Time Array in Days*/
 double data[Ndt][NumP][6]={{{0.0}}}; 									/*Output Data array [timestep][particle number][x,y,z,t,Ek,Ep]*/
-double dpos[NumP][NumP][4]={{{0.0}}}; 											/*Distance between particles for a given particle [particle #][dx,dy,dz,dr]*/
-double force[NumP][NumP][3]={{{0.0}}}; 											/*Force vectors [i][Fx,Fy,Fz]*/
+double dpos[NumP][NumP][4]={{{0.0}}}; 									/*Distance between particles for a given particle [particle #][dx,dy,dz,dr]*/
+double force[NumP][NumP][3]={{{0.0}}}; 									/*Force vectors [i][Fx,Fy,Fz]*/
 double Fx[NumP] = {0.0};
 double Fy[NumP] = {0.0};
-double Fz[NumP] = {0.0};														/*Force vectors*/
+double Fz[NumP] = {0.0};													/*Force vectors*/
 double kin_en[NumP]={0.0}; 												/*Particles Kinetic Energy*/
 double pot_en[NumP]={0.0}; 												/*Particles Potential Energy*/
 
-
 /* #### Functions #### */
 
-
-int Calc()
+__global__
+void Calc(double Fx, double Fy, double Fz, double pot_en, double masses, double dpos, double force)
 {
-	
+    int stride = threadIdx.x * gridDim.x;
 	int z;
 	for (z=0; z < NumP; z++)
 	{
@@ -91,7 +89,7 @@ int Calc()
 			/*pot_en[j] = pot_en[j] - (G * masses[i] * masses[j])/(dpos[j][i][3]);*/
 		}
 	}
-	return 0;
+	
 }
 
 
@@ -224,7 +222,7 @@ int main()
    	for (t = 0; t < Ndt; t++) 											/*Loop through timesteps*/
    	{
 		
-		Calc();															/*Calculate dpos and force arrays for this timestep*/
+		Calc<<<32,32>>>(Fx, Fy, Fz, pot_en, masses, dpos, force);															/*Calculate dpos and force arrays for this timestep*/
 		
     	int particle_i; 												/*Initiate particle counter*/
     	
